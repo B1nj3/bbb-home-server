@@ -25,11 +25,11 @@ flowchart LR
 | --- | --- |
 | Hardware | HP EliteDesk 800 G5 Mini: Intel Core i5-9500 (6 cores), 16 GB RAM, Samsung SATA SSD (system) + WD NVMe (recordings) |
 | Operating system | Ubuntu Server 22.04.5 LTS |
-| Conferencing | BigBlueButton 3.0 (nginx, FreeSWITCH, mediasoup/WebRTC, recording pipeline) |
+| Conferencing | BigBlueButton 4.0, upgraded from 3.0 (nginx, FreeSWITCH, WebRTC, recording pipeline); no Greenlight front end |
 | TLS | Let's Encrypt via `bbb-install.sh` |
 | Network | Vodafone Full Fibre 500 (68 Mbps upload), static public IPv4, router port forwarding |
 | DNS | A record in cPanel (Namecheap hosting) |
-| Remote admin | SSH on the LAN; Tailscale for off-site access (no SSH exposed to the internet) |
+| Remote admin | Tailscale private network with Tailscale SSH; no SSH exposed to the internet |
 | Firewall | UFW, opened only for 80/tcp, 443/tcp, 16384-32768/udp, 3478 |
 
 ## What I did
@@ -50,11 +50,14 @@ flowchart LR
 | TLS certificate failed with a connection timeout | Router port rules had not saved | Re-added and verified rules; tested from outside the LAN |
 | Microphones would not connect | FreeSWITCH SIP address set to the public IP behind NAT | Set `freeswitch.sip_ip` to the LAN address |
 | API `checksumError` | Shared secret mistyped | Rotated to a hex secret; never shared on screen |
+| Public Sign in / Sign up page appeared after upgrading to 4.0 | Greenlight v3 front end served on `/` | Disabled Greenlight in nginx ([write-up](docs/SECURITY-FIX-GREENLIGHT.md)) |
+| `500 Internal Server Error` on the domain after disabling Greenlight | Default front end had also been disabled, so nginx had no handler for `/` | Re-enabled `default-fe.nginx`, `nginx -t`, reload |
 
 ## Repository contents
 
 - [`docs/SETUP.md`](docs/SETUP.md): the full build, phase by phase, with screenshots.
 - [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md): every error met, its cause and fix.
+- [`docs/SECURITY-FIX-GREENLIGHT.md`](docs/SECURITY-FIX-GREENLIGHT.md): removing the public Greenlight portal, the 500 error it caused, and Tailscale-only admin access.
 - [`scripts/`](scripts/): the commands used, as small reviewed scripts.
 
 ## Security considerations
@@ -63,10 +66,11 @@ The server holds recordings of children's lessons, so it was built to expose as 
 
 | Area | Control |
 | --- | --- |
+| No public front end | Greenlight (public sign-up and rooms) disabled in nginx; the site root shows only the default page. Meetings are created only by the school website through the API. |
 | Attack surface | Router forwards only 80/tcp, 443/tcp and 16384-32768/udp (plus 3478 for TURN). SSH (22) is **not** exposed to the internet. |
 | Host firewall | UFW enabled by the installer (`-w`), default deny inbound, allowing only the ports above. |
 | Transport | HTTPS enforced with an auto-renewing Let's Encrypt certificate; WebRTC media is encrypted (DTLS-SRTP). |
-| Remote admin | SSH only from the LAN; off-site access over Tailscale (WireGuard), shared per machine. |
+| Remote admin | Port 22 never forwarded. Off-site administration only over Tailscale (WireGuard) with Tailscale SSH (`tailscale set --ssh`), so login is tied to the admin's identity. |
 | API secret | 128-bit random hex (`openssl rand -hex 16`), read only on the server, stored only in the website's private `.env`; rotated immediately after it appeared in a screenshot. |
 | Recording control | Classes are created with `record=true`, `autoStartRecording=true`, `allowStartStopRecording=false`, so tutors cannot pause recordings. |
 | Data separation | Recordings on a dedicated drive; the family home cloud runs on a separate machine. |
@@ -74,7 +78,7 @@ The server holds recordings of children's lessons, so it was built to expose as 
 | Privacy (UK GDPR) | Parental consent, access limited to student, parent, tutor and admin; recordings kept one school year. |
 | Publication hygiene | No secrets in this repository (`.gitignore` blocks `.env` files). The shared secret, passwords, public IP and MAC address are removed or blurred in all text and screenshots. |
 
-Planned hardening: SSH key-only login with password authentication disabled, `fail2ban`, unattended security upgrades, off-site encrypted recording backups, and uptime monitoring.
+Planned hardening: stop the now-unused Greenlight containers, SSH key-only login with password authentication disabled, `fail2ban`, unattended security upgrades, off-site encrypted recording backups, and uptime monitoring.
 
 ## Status
 
